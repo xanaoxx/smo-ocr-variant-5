@@ -1,8 +1,3 @@
-# СМО — центр OCR-обработки документов (вариант 5)
-
-Моделируется центр OCR-обработки: подразделения и информационные системы (источники) отправляют задания на распознавание сканов и PDF-файлов. Заявки ждут в ограниченном кольцевом буфере и обрабатываются OCR-серверами. Отказ возможен только в буфере (вытеснение), серверы не отказывают, а бывают заняты.
-
-Проект содержит артефакты проектирования (PlantUML). Программной реализации в репозитории нет.
 
 ## Вариант СМО
 
@@ -22,16 +17,16 @@
 
 ## Диаграммы
 
-| Диаграмма | Файл | Что показывает |
-| --- | --- | --- |
-| Основной цикл | [main-flow.puml](diagrams/sequence/main-flow.puml) | Цикл событий календаря: инициализация, обработка REQUEST_GENERATED и SERVICE_COMPLETED, ОД2, итоговая ОР1 |
-| Happy Flow | [happy-flow.puml](diagrams/sequence/happy-flow.puml) | Буфер и сервер свободны, заявка проходит путь от генерации до завершения |
-| Переполнение буфера | [overflow.puml](diagrams/sequence/overflow.puml) | Постановка в кольцевой буфер, вытеснение заявки под указателем |
-| Пакетная обработка | [batch-processing.puml](diagrams/sequence/batch-processing.puml) | Формирование фиксированного пакета, раздача заявок серверам |
-| Завершение обслуживания | [service-completion.puml](diagrams/sequence/service-completion.puml) | Освобождение сервера, закрытие пакета, повторная диспетчеризация |
-| Полный сценарий | [full-scenario.puml](diagrams/sequence/full-scenario.puml) | Одна большая диаграмма: вытеснение при полном буфере, ожидание занятых серверов, постановка заявки на обслуживание |
-| Диаграмма классов | [class-diagram.puml](diagrams/class/class-diagram.puml) | Классы, методы, ссылки между компонентами |
-| Блок-схема с дорожками | [system-flow.puml](diagrams/flowchart/system-flow.puml) | Все альтернативы процесса по дорожкам |
+| Диаграмма | Файл |
+| --- | --- |
+| Основной цикл | [main-flow.puml](diagrams/sequence/main-flow.puml) |
+| Happy Flow | [happy-flow.puml](diagrams/sequence/happy-flow.puml) |
+| Переполнение буфера | [overflow.puml](diagrams/sequence/overflow.puml) |
+| Пакетная обработка | [batch-processing.puml](diagrams/sequence/batch-processing.puml) |
+| Завершение обслуживания | [service-completion.puml](diagrams/sequence/service-completion.puml) |
+| Полный сценарий | [full-scenario.puml](diagrams/sequence/full-scenario.puml) |
+| Диаграмма классов | [class-diagram.puml](diagrams/class/class-diagram.puml) |
+| Блок-схема с дорожками | [system-flow.puml](diagrams/flowchart/system-flow.puml) |
 
 ## Правила модели
 
