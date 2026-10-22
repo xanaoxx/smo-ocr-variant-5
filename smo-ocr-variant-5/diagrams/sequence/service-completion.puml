@@ -1,0 +1,52 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #236B8E
+skinparam ParticipantBorderColor #236B8E
+skinparam ParticipantBackgroundColor #EAF4FA
+skinparam NoteBackgroundColor #FFF7ED
+skinparam NoteBorderColor #C2410C
+
+title Вариант 5 — завершение обслуживания и освобождение OCR-сервера
+
+control "Контроллер\nмоделирования" as Controller
+control "Календарь\nсобытий" as Calendar
+participant "OCR-сервер\n(ПЗ2)" as Worker
+database "Статистика\n(ОР1)" as Stats
+control "Планировщик пакетов\n(Д2Б5)" as Batch
+control "Диспетчер серверов\n(Д2П1)" as ServerDispatch
+participant "Отображение\n(ОД2)" as View
+
+note over Controller, View
+Триггер: событие SERVICE_COMPLETED, наступившее в календаре.
+Сервер не «отказывает» — он освобождается, и это событие запускает диспетчеризацию.
+end note
+
+Controller -> Calendar: next()
+Calendar --> Controller: SERVICE_COMPLETED(server, tEnd)
+Controller -> Worker: finishService(tEnd)
+Worker -> Worker: busyTime += tEnd - serviceStartTime
+Worker --> Controller: request
+Controller -> Stats: registerCompleted(request, tEnd)
+note right of Stats
+Ожидание = serviceStartTime - arrivalTime.
+Обслуживание = tEnd - serviceStartTime.
+Нагрузка сервера = busyTime / T.
+end note
+Controller -> Batch: onServerReleased(request, tEnd)
+Batch -> Batch: activeBatch.onRequestCompleted()
+alt Все заявки активного пакета обслужены
+  Batch -> Batch: закрыть пакет (activeBatch = null)
+  opt hasFreeServer() и буфер не пуст
+    Batch -> Batch: dispatchAvailable(tEnd) — сформировать новый пакет\n(см. batch-processing.puml)
+  end
+else В пакете остались необслуженные заявки
+  opt hasFreeServer()
+    Batch -> Batch: dispatchAvailable(tEnd) — отправить следующую заявку\nпакета на первый свободный сервер [Д2П1]
+  end
+end
+Batch --> Controller: готово
+Controller -> View: show(SystemState) [ОД2]
+@enduml

@@ -1,0 +1,153 @@
+@startuml
+title Вариант 5 — диаграмма классов центра OCR-обработки
+left to right direction
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam ArrowColor #236B8E
+skinparam ClassBorderColor #236B8E
+skinparam ClassBackgroundColor #EAF4FA
+
+package "Модель" {
+  class Request {
+    - id: long
+    - sourceId: int
+    - documentUri: String
+    - ocrParameters: String
+    - arrivalTime: double
+    - serviceStartTime: double
+    - serviceEndTime: double
+    - status: RequestStatus
+    + getId(): long
+    + getSourceId(): int
+    + getArrivalTime(): double
+    + startService(time: double): void
+    + finishService(time: double): void
+    + markEvicted(): void
+    + getWaitingTime(): double
+    + getServiceTime(): double
+  }
+
+  enum RequestStatus {
+    WAITING
+    IN_SERVICE
+    COMPLETED
+    EVICTED
+  }
+
+  class Batch {
+    - sourceId: int
+    - pending: Queue<Request>
+    - totalCount: int
+    - completedCount: int
+    - createdAt: double
+    + poll(): Request
+    + hasPending(): boolean
+    + onRequestCompleted(): void
+    + isFullyProcessed(): boolean
+    + getSourceId(): int
+  }
+
+  class RingBuffer {
+    - cells: Request[]
+    - pointer: int
+    - capacity: int
+    + put(request: Request): PutResult
+    + waitingSourceIds(): Set<Integer>
+    + takeAllCurrentlyWaiting(sourceId: int): List<Request>
+    + isEmpty(): boolean
+    + isFull(): boolean
+    + snapshot(): Request[]
+    + getPointer(): int
+    - nextIndex(index: int): int
+  }
+
+  class PutResult {
+    - stored: boolean
+    - cellIndex: int
+    - evictedRequest: Request
+    + isStored(): boolean
+    + isEvicted(): boolean
+    + getCellIndex(): int
+    + getEvictedRequest(): Request
+  }
+
+  class SystemState {
+    - time: double
+    - lastEvent: Event
+    - bufferSnapshot: Request[]
+    - bufferPointer: int
+    - activeBatch: Batch
+    - serverStates: List<String>
+    - counters: SummaryTable
+    + getTime(): double
+  }
+
+  class SummaryTable {
+    - generatedCount: int
+    - acceptedCount: int
+    - evictedCount: int
+    - completedCount: int
+    - evictionRatio: double
+    - averageWaitingTime: double
+    - averageServiceTime: double
+    - serverUtilization: Map<Integer, Double>
+    + toTable(): String
+  }
+}
+
+package "Источники и случайные законы" {
+  class Source {
+    - id: int
+    - priority: int
+    - nextRequestId: long
+    - arrivalLaw: ArrivalLaw
+    - calendar: EventCalendar
+    + generateRequest(time: double): Request
+    + scheduleNext(time: double): void
+    + getId(): int
+    + getPriority(): int
+  }
+
+  interface ArrivalLaw {
+    + nextInterval(): double
+  }
+
+  class ExponentialInterarrivalLaw {
+    - lambda: double
+    + nextInterval(): double
+  }
+
+  interface ServiceTimeLaw {
+    + nextDuration(): double
+  }
+
+  class UniformServiceTimeLaw {
+    - minDuration: double
+    - maxDuration: double
+    + nextDuration(): double
+  }
+}
+
+package "Диспетчеризация" {
+  class PlacementDispatcher {
+    - buffer: RingBuffer
+    - batchScheduler: BatchScheduler
+    - statistics: Statistics
+    + onRequestGenerated(request: Request, time: double): void
+    - place(request: Request, time: double): PutResult
+  }
+
+  class BatchScheduler {
+    - buffer: RingBuffer
+    - serverDispatcher: ServerDispatcher
+    - statistics: Statistics
+    - sourcePriorities: Map<Integer, Integer>
+    - activeBatch: Batch
+    + onRequestBuffered(time: double): void
+    + onServerReleased(request: Request, time: double): void
+    + dispatchAvailable(time: double): void
+    + getActiveBatch(): Batch
+    - chooseSourceId(candidates: Set<Integer>):

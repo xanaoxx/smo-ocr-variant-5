@@ -1,0 +1,62 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #236B8E
+skinparam ParticipantBorderColor #236B8E
+skinparam ParticipantBackgroundColor #EAF4FA
+skinparam NoteBackgroundColor #FFF7ED
+skinparam NoteBorderColor #C2410C
+
+title Вариант 5 — формирование и обработка пакета (Д2Б5, Д2П1, ПЗ2)
+
+control "Планировщик пакетов\n(Д2Б5)" as Batch
+queue "Кольцевой буфер\n(Д1ОЗ1, Д1ОО1)" as Buffer
+control "Диспетчер серверов\n(Д2П1)" as ServerDispatch
+participant "OCR-сервер\n(ПЗ2)" as Worker
+control "Календарь\nсобытий" as Calendar
+database "Статистика\n(ОР1)" as Stats
+
+note over Batch, Stats
+Д2Б5: пакет — все заявки ОДНОГО источника (с наивысшим приоритетом среди ожидающих),
+которые лежат в буфере в момент формирования пакета. Пакет не расширяется:
+заявки, пришедшие позже, остаются в буфере. Все серверы обслуживают только один пакет;
+новый пакет формируется после полной обработки текущего.
+Д2П1: сервер для заявки — первый свободный по порядку номеров 1..N.
+end note
+
+[-> Batch: dispatchAvailable(t)\n(триггер: onRequestBuffered или onServerReleased)
+
+alt Активного пакета нет, есть свободный сервер и буфер не пуст
+  Batch -> ServerDispatch: hasFreeServer()
+  ServerDispatch --> Batch: true
+  Batch -> Buffer: waitingSourceIds()
+  Buffer --> Batch: множество sourceId ожидающих заявок
+  Batch -> Batch: sourceId = источник с наивысшим приоритетом [Д2Б5]
+  Batch -> Buffer: takeAllCurrentlyWaiting(sourceId)
+  Buffer --> Batch: заявки источника (ячейки освобождены), по порядку прихода
+  Batch -> Batch: createBatch(sourceId, t) — состав пакета зафиксирован
+else Активный пакет есть
+  Batch -> Batch: новые заявки в пакет не добавляются
+else Активного пакета нет, буфер пуст или нет свободных серверов
+  Batch -> Batch: ждать следующее событие (поступление / освобождение сервера)
+end
+
+loop Пока в пакете есть ещё не отправленные на обслуживание заявки и есть свободный сервер
+  Batch -> Batch: request = activeBatch.poll()
+  Batch -> ServerDispatch: dispatch(request, t)
+  ServerDispatch -> ServerDispatch: server = findFirstFreeServer() [Д2П1]
+  ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2: U(a, b)]
+  ServerDispatch -> Worker: startService(request, t, duration)
+  Worker --> ServerDispatch: сервер занят до t + duration
+  ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
+  Calendar --> ServerDispatch: eventId
+  ServerDispatch -> Stats: registerStarted(request, server)
+  ServerDispatch --> Batch: true
+end
+
+opt Все заявки пакета отправлены, но не все обслужены
+  Batch -> Batch: свободные серверы простаивают,\nновый пакет не формируется
+end
+@enduml

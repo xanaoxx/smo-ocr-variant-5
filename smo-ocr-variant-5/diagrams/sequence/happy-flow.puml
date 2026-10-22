@@ -1,0 +1,71 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #236B8E
+skinparam ParticipantBorderColor #236B8E
+skinparam ParticipantBackgroundColor #EAF4FA
+skinparam NoteBackgroundColor #FFF7ED
+skinparam NoteBorderColor #C2410C
+
+title Вариант 5 — Happy Flow (в буфере есть место, свободный OCR-сервер есть, активного пакета нет)
+
+control "Контроллер\nмоделирования" as Controller
+control "Календарь\nсобытий" as Calendar
+participant "Источник\n(ИБ, ИЗ1)" as Source
+control "Диспетчер\nпостановки" as Placement
+queue "Кольцевой буфер\n(Д1ОЗ1, Д1ОО1)" as Buffer
+control "Планировщик пакетов\n(Д2Б5)" as Batch
+control "Диспетчер серверов\n(Д2П1)" as ServerDispatch
+participant "OCR-сервер\n(ПЗ2)" as Worker
+database "Статистика\n(ОР1)" as Stats
+
+note over Controller, Stats
+Триггер: событие REQUEST_GENERATED, извлечённое из календаря.
+Д1ОЗ1 — поиск свободной ячейки от указателя, после записи указатель сдвигается.
+Д2П1 — первый свободный сервер по порядку номеров. Д2Б5 — пакет заявок одного источника.
+end note
+
+Controller -> Calendar: next()
+Calendar --> Controller: REQUEST_GENERATED(source, t)
+Controller -> Source: generateRequest(t)
+Source -> Calendar: schedule(REQUEST_GENERATED, t + ИЗ1.nextInterval())
+Calendar --> Source: eventId
+Source --> Controller: request
+Controller -> Placement: onRequestGenerated(request, t)
+Placement -> Stats: registerGenerated(request)
+Placement -> Buffer: put(request) [Д1ОЗ1]
+Buffer -> Buffer: найти свободную ячейку от pointer, записать,\npointer = next(индекс записи)
+Buffer --> Placement: PutResult(stored = true, cellIndex, evicted = нет)
+Placement -> Stats: registerAccepted(request)
+Placement -> Batch: onRequestBuffered(t)
+
+Batch -> ServerDispatch: hasFreeServer()
+ServerDispatch -> ServerDispatch: findFirstFreeServer() [Д2П1: перебор 1..N]
+ServerDispatch --> Batch: true
+Batch -> Buffer: waitingSourceIds()
+Buffer --> Batch: {sourceId}
+Batch -> Batch: выбрать источник с наивысшим приоритетом [Д2Б5]
+Batch -> Buffer: takeAllCurrentlyWaiting(sourceId)
+Buffer --> Batch: список заявок источника (здесь одна заявка)
+Batch -> Batch: createBatch(sourceId, t): состав пакета фиксируется
+Batch -> ServerDispatch: dispatch(request, t)
+ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2: U(a, b)]
+ServerDispatch -> Worker: startService(request, t, duration)
+Worker --> ServerDispatch: сервер занят
+ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
+Calendar --> ServerDispatch: eventId
+ServerDispatch -> Stats: registerStarted(request, server)
+ServerDispatch --> Batch: true
+
+... проходит время OCR-обслуживания ...
+
+Controller -> Calendar: next()
+Calendar --> Controller: SERVICE_COMPLETED(server, t + duration)
+Controller -> Worker: finishService(tEnd)
+Worker --> Controller: request
+Controller -> Stats: registerCompleted(request, tEnd)
+Controller -> Batch: onServerReleased(request, tEnd)
+Batch -> Batch: пакет полностью обработан — закрыть,\nbuffer пуст — новый пакет не формируется
+@enduml

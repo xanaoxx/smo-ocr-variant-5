@@ -1,0 +1,48 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #236B8E
+skinparam ParticipantBorderColor #236B8E
+skinparam ParticipantBackgroundColor #EAF4FA
+skinparam NoteBackgroundColor #FFF7ED
+skinparam NoteBorderColor #C2410C
+
+title Вариант 5 — постановка в кольцевой буфер и вытеснение при переполнении (Д1ОЗ1, Д1ОО1)
+
+participant "Источник\n(ИБ, ИЗ1)" as Source
+control "Диспетчер\nпостановки" as Placement
+queue "Кольцевой буфер\n(Д1ОЗ1, Д1ОО1)" as Buffer
+database "Статистика\n(ОР1)" as Stats
+
+note over Source, Stats
+Д1ОЗ1: поиск свободной ячейки начинается с текущего указателя (pointer), по кольцу;
+после записи указатель сдвигается.
+Д1ОО1: если свободных ячеек нет, новая заявка записывается в ячейку под указателем
+(вытесняется именно она, а не самая старая и не худшая по приоритету), указатель сдвигается.
+Отказ возможен только в буфере. Приборы не отказывают, они бывают заняты.
+end note
+
+Source -> Placement: onRequestGenerated(newRequest, t)
+Placement -> Stats: registerGenerated(newRequest)
+Placement -> Buffer: put(newRequest) [Д1ОЗ1]
+Buffer -> Buffer: просмотр ячеек по кольцу, начиная с pointer
+alt Найдена свободная ячейка i
+  Buffer -> Buffer: cells[i] = newRequest
+  Buffer -> Buffer: pointer = next(i)
+  Buffer --> Placement: PutResult(stored = true, cellIndex = i, evicted = нет)
+  Placement -> Stats: registerAccepted(newRequest)
+else Свободных ячеек нет, буфер полон [Д1ОО1]
+  Buffer -> Buffer: oldRequest = cells[pointer]
+  Buffer -> Buffer: cells[pointer] = newRequest
+  Buffer -> Buffer: pointer = next(pointer)
+  Buffer --> Placement: PutResult(stored = true, cellIndex = pointer до сдвига, evicted = oldRequest)
+  Placement -> Stats: registerEvicted(oldRequest, t)
+  note right of Stats
+  oldRequest получает статус «вытеснена» (отказ).
+  Учитывается один раз и больше в очередь не попадает.
+  end note
+  Placement -> Stats: registerAccepted(newRequest)
+end
+@enduml

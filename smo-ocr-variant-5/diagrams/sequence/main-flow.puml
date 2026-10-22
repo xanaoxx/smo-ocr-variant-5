@@ -1,0 +1,70 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #236B8E
+skinparam ParticipantBorderColor #236B8E
+skinparam ParticipantBackgroundColor #EAF4FA
+skinparam NoteBackgroundColor #FFF7ED
+skinparam NoteBorderColor #C2410C
+
+title Вариант 5 — основной цикл моделирования центра OCR-обработки
+
+control "Контроллер\nмоделирования" as Controller
+control "Календарь\nсобытий" as Calendar
+participant "Источник\n(ИБ, ИЗ1)" as Source
+control "Диспетчер\nпостановки" as Placement
+control "Планировщик пакетов\n(Д2Б5)" as Batch
+control "Диспетчер серверов\n(Д2П1)" as ServerDispatch
+participant "OCR-сервер\n(ПЗ2)" as Worker
+database "Статистика\n(ОР1)" as Stats
+participant "Отображение\n(ОД2)" as View
+
+note over Controller, View
+Расшифровка варианта: ИБ ИЗ1 ПЗ2 Д1ОЗ1 Д1ОО1 Д2П1 Д2Б5 ОР1 ОД2
+ИБ — источники заявок; ИЗ1 — экспоненциальные интервалы между заявками;
+ПЗ2 — время OCR-обслуживания U(a, b); Д1ОЗ1 — запись в кольцевой буфер от указателя;
+Д1ОО1 — при полном буфере вытесняется заявка под указателем;
+Д2П1 — первый свободный сервер по порядку номеров; Д2Б5 — пакет заявок одного источника;
+ОР1 — сводная таблица статистики; ОД2 — пошаговое отображение состояния.
+end note
+
+== Инициализация ==
+Controller -> Source: generateRequest(t = 0) для каждого источника
+Source -> Calendar: schedule(REQUEST_GENERATED, 0 + ИЗ1.nextInterval())
+Calendar --> Source: eventId
+
+== Цикл обработки событий (триггер — очередное событие календаря) ==
+loop Пока календарь не пуст и не достигнуто время окончания (в пошаговом режиме — одно событие на шаг)
+  Controller -> Calendar: next()
+  Calendar --> Controller: event (тип, время t, источник / сервер / заявка)
+  alt event.type = REQUEST_GENERATED
+    Controller -> Source: generateRequest(t)
+    Source -> Calendar: schedule(REQUEST_GENERATED, t + ИЗ1.nextInterval())
+    Calendar --> Source: eventId
+    Source --> Controller: request
+    Controller -> Placement: onRequestGenerated(request, t)
+    Placement -> Stats: registerGenerated(request)
+    ref over Placement, Buffer, Stats: постановка в кольцевой буфер (Д1ОЗ1 / Д1ОО1)\nсм. overflow.puml
+    Placement -> Batch: onRequestBuffered(t)
+    ref over Batch, ServerDispatch, Worker: диспетчеризация\nсм. batch-processing.puml
+  else event.type = SERVICE_COMPLETED
+    Controller -> Worker: finishService(t)
+    Worker --> Controller: request
+    Controller -> Stats: registerCompleted(request, t)
+    Controller -> Batch: onServerReleased(request, t)
+    ref over Batch, Worker, Stats: завершение обслуживания\nсм. service-completion.puml
+  end
+  Controller -> View: show(SystemState) [ОД2]
+  note right
+  Состояние: источники, ячейки буфера,
+  указатель, активный пакет, серверы, счётчики.
+  end note
+end
+
+== Завершение моделирования ==
+Controller -> Stats: buildSummary(endTime) [ОР1]
+Stats --> Controller: SummaryTable
+Controller -> View: showSummary(SummaryTable)
+@enduml

@@ -1,0 +1,115 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName DejaVu Sans
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #236B8E
+skinparam ParticipantBorderColor #236B8E
+skinparam ParticipantBackgroundColor #EAF4FA
+skinparam NoteBackgroundColor #FFF7ED
+skinparam NoteBorderColor #C2410C
+
+title Вариант 5 — полный сценарий: поступление, вытеснение при полном буфере, ожидание сервера, постановка на обслуживание
+
+control "Контроллер\nмоделирования" as Controller
+control "Календарь\nсобытий" as Calendar
+participant "Источник\n(ИБ, ИЗ1)" as Source
+control "Диспетчер\nпостановки" as Placement
+queue "Кольцевой буфер\n(Д1ОЗ1, Д1ОО1)" as Buffer
+control "Планировщик пакетов\n(Д2Б5)" as Batch
+control "Диспетчер серверов\n(Д2П1)" as ServerDispatch
+participant "OCR-сервер\n(ПЗ2)" as Worker
+database "Статистика\n(ОР1)" as Stats
+participant "Отображение\n(ОД2)" as View
+
+note over Controller, View
+Расшифровка кодов варианта:
+ИЗ1 — интервал между заявками: экспоненциальный закон. ПЗ2 — время обслуживания: U(a, b).
+Д1ОЗ1 — запись в кольцевой буфер: поиск свободной ячейки с указателя, после записи указатель сдвигается.
+Д1ОО1 — буфер полон: новая заявка вытесняет заявку в ячейке под указателем, указатель сдвигается.
+Д2П1 — сервер для заявки: первый свободный по порядку номеров.
+Д2Б5 — выбор: пакет всех ожидающих заявок одного источника (с наивысшим приоритетом); пакет фиксирован.
+ОР1 — сводная таблица статистики. ОД2 — пошаговое отображение состояния.
+end note
+
+== 1. Триггер: поступление заявки ==
+Controller -> Calendar: next()
+Calendar --> Controller: REQUEST_GENERATED(source, t)
+Controller -> Source: generateRequest(t)
+Source -> Calendar: schedule(REQUEST_GENERATED, t + ИЗ1.nextInterval())
+Calendar --> Source: eventId
+Source --> Controller: newRequest
+Controller -> Placement: onRequestGenerated(newRequest, t)
+Placement -> Stats: registerGenerated(newRequest)
+
+== 2. Постановка в кольцевой буфер ==
+Placement -> Buffer: put(newRequest) [Д1ОЗ1]
+alt Есть свободная ячейка (Happy Flow, буфер не полон)
+  Buffer -> Buffer: cells[i] = newRequest; pointer = next(i)
+  Buffer --> Placement: PutResult(stored, cellIndex = i, evicted = нет)
+  Placement -> Stats: registerAccepted(newRequest)
+else Буфер полон — отказ через вытеснение [Д1ОО1]
+  Buffer -> Buffer: oldRequest = cells[pointer]
+  Buffer -> Buffer: cells[pointer] = newRequest; pointer = next(pointer)
+  Buffer --> Placement: PutResult(stored, evicted = oldRequest)
+  Placement -> Stats: registerEvicted(oldRequest, t)
+  Placement -> Stats: registerAccepted(newRequest)
+end
+
+== 3. Триггер: попытка диспетчеризации после постановки ==
+Placement -> Batch: onRequestBuffered(t)
+Batch -> Batch: dispatchAvailable(t)
+Batch -> ServerDispatch: hasFreeServer()
+ServerDispatch --> Batch: true / false
+
+alt Нет свободных серверов (приборы заняты, а не «отказали»)
+  Batch -> Batch: заявка ждёт в буфере, пакет не формируется
+  note over Batch
+  Дальнейшее продвижение — только по событиям календаря.
+  Когда наступит SERVICE_COMPLETED (см. раздел 5),
+  оно повторно вызовет dispatchAvailable(t).
+  end note
+else Есть свободный сервер
+  Batch -> Buffer: waitingSourceIds()
+  Buffer --> Batch: множество sourceId
+  Batch -> Batch: выбрать источник с наивысшим приоритетом [Д2Б5]
+  Batch -> Buffer: takeAllCurrentlyWaiting(sourceId)
+  Buffer --> Batch: заявки источника (ячейки освобождены)
+  Batch -> Batch: createBatch(sourceId, t) — состав пакета фиксируется
+end
+
+== 4. Постановка заявки пакета на сервер ==
+loop Пока в пакете есть неотправленные заявки и есть свободный сервер
+  Batch -> ServerDispatch: dispatch(request, t)
+  ServerDispatch -> ServerDispatch: server = findFirstFreeServer() [Д2П1]
+  ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2]
+  ServerDispatch -> Worker: startService(request, t, duration)
+  Worker --> ServerDispatch: сервер занят до t + duration
+  ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
+  Calendar --> ServerDispatch: eventId
+  ServerDispatch -> Stats: registerStarted(request, server)
+  ServerDispatch --> Batch: true
+end
+Controller -> View: show(SystemState) [ОД2]
+
+== 5. Завершение обслуживания (цикл ожидания) ==
+... проходит время обслуживания; очередное событие календаря ...
+Controller -> Calendar: next()
+Calendar --> Controller: SERVICE_COMPLETED(server, tEnd)
+Controller -> Worker: finishService(tEnd)
+Worker --> Controller: request
+Controller -> Stats: registerCompleted(request, tEnd)
+Controller -> Batch: onServerReleased(request, tEnd)
+Batch -> Batch: activeBatch.onRequestCompleted()
+alt Пакет обслужен целиком
+  Batch -> Batch: закрыть активный пакет
+  opt hasFreeServer() и буфер не пуст
+    Batch -> Batch: dispatchAvailable(tEnd) — сформировать новый пакет
+  end
+else В пакете остались заявки
+  opt hasFreeServer()
+    Batch -> Batch: dispatchAvailable(tEnd) — отправить следующую заявку пакета [Д2П1]
+  end
+end
+Controller -> View: show(SystemState) [ОД2]
+@enduml
