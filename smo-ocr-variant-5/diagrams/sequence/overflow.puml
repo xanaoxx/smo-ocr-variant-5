@@ -34,7 +34,7 @@ alt Найдена свободная ячейка i
   Buffer --> Placement: PutResult(stored = true, cellIndex = i, evicted = нет)
   Placement -> Stats: registerAccepted(newRequest)
 else Свободных ячеек нет, буфер полон [Д1ОО1]
-  Buffer -> Buffer: victimIndex = pointer
+Buffer -> Buffer: victimIndex = pointer
 Buffer -> Buffer: oldRequest = cells[victimIndex]
 Buffer -> Buffer: cells[victimIndex] = newRequest
 Buffer -> Buffer: pointer = next(victimIndex)
