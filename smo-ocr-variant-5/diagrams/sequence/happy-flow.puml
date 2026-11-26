@@ -105,7 +105,7 @@ Worker --> Controller: request
 
 Controller -> Stats: registerCompleted(request, tEnd)
 Controller -> Batch: onServerReleased(request, tEnd)
-Batch -> Batch: activeBatch.onRequestCompleted()
+Batch -> Batch: activeBatch.onRequestCompleted(request)
 Batch -> Batch: isFullyProcessed()
 
 alt Все заявки пакета обслужены
