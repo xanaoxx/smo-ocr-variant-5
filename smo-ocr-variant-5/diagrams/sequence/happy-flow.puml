@@ -27,8 +27,9 @@ note over Controller, View
 Предусловия Happy Flow:
 Буфер пуст, активного пакета нет,
 имеется свободный OCR-сервер.
-В рассматриваемом сценарии до завершения
-обслуживания не поступают другие заявки.
+До завершения текущего обслуживания
+новые заявки от других источников
+не поступают.
 end note
 
 == 1. Поступление заявки ==
@@ -60,7 +61,6 @@ Placement -> Batch: onRequestBuffered(t)
 == 3. Формирование пакета ==
 
 Batch -> ServerDispatch: hasFreeServer()
-ServerDispatch -> ServerDispatch: findFirstFreeServer() [Д2П1]
 ServerDispatch --> Batch: true
 
 Batch -> Buffer: waitingSourceIds()
@@ -80,14 +80,16 @@ loop Пока есть неотправленные заявки и свобод
   ServerDispatch -> ServerDispatch: findFirstFreeServer() [Д2П1]
   ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2: U(a, b)]
   ServerDispatch -> Worker: startService(request, t, duration)
-  Worker --> ServerDispatch: сервер занят до t + duration
-  ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
-  Calendar --> ServerDispatch: eventId
-  ServerDispatch -> Stats: registerStarted(request, server)
+Worker --> ServerDispatch: сервер занят до t + duration
+ServerDispatch -> Stats: registerStarted(request, server)
+ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
+Calendar --> ServerDispatch: eventId
   ServerDispatch --> Batch: true
 end
 
-Controller -> View: show(SystemState) [ОД2]
+opt Режим пошаговый
+  Controller -> View: show(SystemState) [ОД2]
+end
 
 ... проходит время OCR-обслуживания ...
 
@@ -102,6 +104,7 @@ Worker --> Controller: request
 Controller -> Stats: registerCompleted(request, tEnd)
 Controller -> Batch: onServerReleased(request, tEnd)
 Batch -> Batch: activeBatch.onRequestCompleted()
+Batch -> Batch: isFullyProcessed()
 
 alt Все заявки пакета обслужены
   Batch -> Batch: закрыть пакет (activeBatch = null)
@@ -112,7 +115,7 @@ alt Все заявки пакета обслужены
     Новый пакет не формируется.
   end note
 end
-
+opt Режим пошаговый
 Controller -> View: show(SystemState) [ОД2]
-
+end
 @enduml
