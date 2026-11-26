@@ -1,3 +1,4 @@
+
 @startuml
 skinparam backgroundColor white
 skinparam shadowing false
@@ -17,52 +18,65 @@ participant "OCR-сервер\n(ПЗ2)" as Worker
 database "Статистика\n(ОР1)" as Stats
 control "Планировщик пакетов\n(Д2Б5)" as Batch
 control "Диспетчер серверов\n(Д2П1)" as ServerDispatch
+queue "Кольцевой буфер\n(Д1ОЗ1, Д1ОО1)" as Buffer
 participant "Отображение\n(ОД2)" as View
 
 note over Controller, View
-Триггер: событие SERVICE_COMPLETED, наступившее в календаре.
-Сервер не «отказывает» — он освобождается, и это событие запускает диспетчеризацию.
+Триггер: событие SERVICE_COMPLETED,
+наступившее в календаре событий.
+После завершения обслуживания сервер освобождается,
+после чего запускается диспетчеризация.
 end note
 
 Controller -> Calendar: next()
 Calendar --> Controller: SERVICE_COMPLETED(server, tEnd)
+
 Controller -> Worker: finishService(tEnd)
 Worker -> Worker: busyTime += tEnd - serviceStartTime
+Worker -> Worker: request.finishService(tEnd)
+Worker -> Worker: completedCount++
+Worker -> Worker: очистить currentRequest,\nserviceStartTime, busyUntil
 Worker --> Controller: request
+
 Controller -> Stats: registerCompleted(request, tEnd)
+
 note right of Stats
 Ожидание = serviceStartTime - arrivalTime.
 Обслуживание = tEnd - serviceStartTime.
 Нагрузка сервера = busyTime / T.
 end note
+
 Controller -> Batch: onServerReleased(request, tEnd)
-Batch -> Batch: activeBatch.onRequestCompleted()
+Batch -> Batch: activeBatch.onRequestCompleted(request)
+Batch -> Batch: isFullyProcessed()
 
-alt В пакете остались ожидающие заявки (pending не пуст)
-  Batch -> Batch: dispatchAvailable(tEnd)
+alt Все заявки пакета обслужены
+  Batch -> Batch: lastBatch = activeBatch
+  Batch -> Batch: activeBatch = null
+else Пакет ещё не завершён
   note right of Batch
-    Отправить следующие заявки
-    текущего пакета на свободные серверы.
+    Пакет остаётся активным.
+    Его зафиксированный состав не изменяется.
+    Ожидающие заявки остаются в pending,
+    выполняющиеся — в running.
   end note
-
-else Ожидающих заявок нет, но есть выполняющиеся (running не пуст)
-  Batch -> Batch: ожидать завершения остальных заявок
-  note right of Batch
-    Все заявки пакета уже назначены.
-    Новый пакет пока не формируется.
-  end note
-
-else Все заявки пакета обслужены
-  Batch -> Batch: закрыть пакет (activeBatch = null)
-  opt Буфер не пуст и есть свободный сервер
-    Batch -> Batch: dispatchAvailable(tEnd)
-    note right of Batch
-      Сформировать следующий пакет
-      из заявок буфера.
-    end note
-  end
 end
 
+Batch -> Batch: dispatchAvailable(tEnd)
+
+ref over Batch, Buffer, ServerDispatch: диспетчеризация текущего\nили формирование следующего пакета\nсм. batch-processing.puml
+
 Batch --> Controller: готово
-Controller -> View: show(SystemState) [ОД2]
+
+opt Режим пошаговый
+  Controller -> View: show(SystemState) [ОД2]
+end
+
+note right of View
+В автоматическом режиме промежуточное
+отображение состояния не вызывается.
+Итоговая сводка выводится после
+завершения цикла моделирования.
+end note
+
 @enduml
