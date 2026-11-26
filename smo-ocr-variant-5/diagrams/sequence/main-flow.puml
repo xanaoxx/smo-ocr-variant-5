@@ -1,3 +1,4 @@
+
 @startuml
 skinparam backgroundColor white
 skinparam shadowing false
@@ -44,6 +45,13 @@ end
 
 == Цикл обработки событий ==
 
+note over Controller, View
+В пошаговом режиме один проход соответствует
+одному вызову step().
+В автоматическом режиме runAuto() самостоятельно
+обрабатывает события до опустошения календаря.
+end note
+
 loop Пока календарь не пуст
 
   Controller -> Calendar: next()
@@ -55,12 +63,16 @@ loop Пока календарь не пуст
     Source --> Controller: request
 
     alt Общий лимит ещё не достигнут
-      Source -> Source: scheduleNext(event.time)
+
+      Controller -> Source: scheduleNext(event.time)
       Source -> Calendar: createEvent(nextTime, REQUEST_GENERATED)
       Source -> Calendar: schedule(event)
-    else Общий лимит достигнут
+
+    else Достигнут общий лимит
+
       Controller -> Calendar: cancelFutureArrivals()
-      Calendar --> Controller: будущие поступления отменены,\nзавершения обслуживания сохранены
+      Calendar --> Controller: будущие REQUEST_GENERATED удалены,\nSERVICE_COMPLETED сохранены
+
     end
 
     Controller -> Placement: onRequestGenerated(request, event.time)
@@ -80,27 +92,26 @@ loop Пока календарь не пуст
 
     Controller -> Batch: onServerReleased(request, event.time)
 
-    ref over Batch, Buffer, ServerDispatch, Worker, Calendar, Stats: Завершение обслуживания\nсм. service-completion.puml
+    ref over Batch, Buffer, ServerDispatch, Worker, Calendar, Stats: Завершение обслуживания и повторная диспетчеризация\nсм. service-completion.puml
 
   end
 
-  Controller -> Controller: buildState()
+  Controller -> Controller: _checkInvariants()
 
-  note right of Controller
-    Формируется SystemState:
-    источники, ячейки буфера,
-    указатель, активный пакет,
-    серверы и счётчики.
-  end note
+  alt Режим пошаговый
 
-  Controller -> View: show(SystemState) [ОД2]
+    Controller -> Controller: buildState()
+    Controller -> View: show(SystemState) [ОД2]
 
-  note right of View
-    В пошаговом режиме состояние отображается.
-    В автоматическом режиме runAuto вызывает
-    тот же step(), но интерфейс пропускает
-    промежуточное отображение.
-  end note
+  else Режим автоматический
+
+    note right of Controller
+      Промежуточный SystemState
+      не формируется.
+      Метод show() не вызывается.
+    end note
+
+  end
 
 end
 
@@ -108,7 +119,7 @@ end
 
 opt Режим автоматический (runAuto)
 
-  Controller -> Stats: buildSummary(time)
+  Controller -> Stats: buildSummary(currentTime) [ОР1]
   Stats --> Controller: SummaryTable\n(таблица по источникам и серверам)
 
   Controller -> View: showSummary(SummaryTable)
