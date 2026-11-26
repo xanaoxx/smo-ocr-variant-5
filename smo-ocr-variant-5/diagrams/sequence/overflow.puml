@@ -12,38 +12,63 @@ skinparam NoteBorderColor #C2410C
 title Вариант 5 — постановка в кольцевой буфер и вытеснение при переполнении (Д1ОЗ1, Д1ОО1)
 
 participant "Источник\n(ИБ, ИЗ1)" as Source
+control "Контроллер\nмоделирования" as Controller
 control "Диспетчер\nпостановки" as Placement
 queue "Кольцевой буфер\n(Д1ОЗ1, Д1ОО1)" as Buffer
 database "Статистика\n(ОР1)" as Stats
+control "Планировщик пакетов\n(Д2Б5)" as Batch
 
-note over Source, Stats
-Д1ОЗ1: поиск свободной ячейки начинается с текущего указателя (pointer), по кольцу;
-после записи указатель сдвигается.
-Д1ОО1: если свободных ячеек нет, новая заявка записывается в ячейку под указателем
-(вытесняется именно она, а не самая старая и не худшая по приоритету), указатель сдвигается.
-Отказ возможен только в буфере. Приборы не отказывают, они бывают заняты.
+note over Source, Batch
+Д1ОЗ1: поиск свободной ячейки начинается
+с текущего указателя (pointer), по кольцу.
+После записи указатель сдвигается.
+
+Д1ОО1: если свободных ячеек нет,
+новая заявка записывается в ячейку под указателем.
+Вытесняется именно эта заявка,
+а не самая старая и не худшая по приоритету.
+
+Отказ возможен только в буфере.
+Приборы не отказывают, они бывают заняты.
 end note
 
-Source -> Placement: onRequestGenerated(newRequest, t)
+Controller -> Source: generateRequest(t)
+Source --> Controller: newRequest
+
+Controller -> Placement: onRequestGenerated(newRequest, t)
 Placement -> Stats: registerGenerated(newRequest)
+
 Placement -> Buffer: put(newRequest) [Д1ОЗ1]
-Buffer -> Buffer: просмотр ячеек по кольцу, начиная с pointer
+Buffer -> Buffer: просмотр ячеек по кольцу,\nначиная с pointer
+
 alt Найдена свободная ячейка i
-  Buffer -> Buffer: cells[i] = newRequest
-  Buffer -> Buffer: pointer = next(i)
-  Buffer --> Placement: PutResult(stored = true, cellIndex = i, evicted = нет)
-  Placement -> Stats: registerAccepted(newRequest)
+    Buffer -> Buffer: cells[i] = newRequest
+    Buffer -> Buffer: pointer = next(i)
+    Buffer --> Placement: PutResult(stored = true,\ncellIndex = i, evicted = нет)
+    Placement -> Stats: registerAccepted(newRequest)
+
 else Свободных ячеек нет, буфер полон [Д1ОО1]
-Buffer -> Buffer: victimIndex = pointer
-Buffer -> Buffer: oldRequest = cells[victimIndex]
-Buffer -> Buffer: cells[victimIndex] = newRequest
-Buffer -> Buffer: pointer = next(victimIndex)
-Buffer --> Placement: PutResult(stored = true, cellIndex = victimIndex, evicted = oldRequest)
-  Placement -> Stats: registerEvicted(oldRequest, t)
-  note right of Stats
-  oldRequest получает статус «вытеснена» (отказ).
-  Учитывается один раз и больше в очередь не попадает.
-  end note
-  Placement -> Stats: registerAccepted(newRequest)
+    Buffer -> Buffer: victimIndex = pointer
+    Buffer -> Buffer: oldRequest = cells[victimIndex]
+    Buffer -> Buffer: cells[victimIndex] = newRequest
+    Buffer -> Buffer: pointer = next(victimIndex)
+
+    Buffer --> Placement: PutResult(stored = true,\ncellIndex = victimIndex,\nevicted = oldRequest)
+
+    Placement -> Stats: registerEvicted(oldRequest, t)
+
+    note right of Stats
+    oldRequest получает статус «вытеснена».
+    Учитывается один раз
+    и больше в очередь не попадает.
+    end note
+
+    Placement -> Stats: registerAccepted(newRequest)
 end
+
+Placement -> Batch: onRequestBuffered(t)
+Batch -> Batch: dispatchAvailable(t)
+
+Placement --> Controller: PutResult
+
 @enduml
