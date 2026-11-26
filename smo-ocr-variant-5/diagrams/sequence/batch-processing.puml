@@ -19,55 +19,103 @@ control "Календарь\nсобытий" as Calendar
 database "Статистика\n(ОР1)" as Stats
 
 note over Batch, Stats
-Д2Б5: пакет — все заявки ОДНОГО источника (с наивысшим приоритетом среди ожидающих),
-которые лежат в буфере в момент формирования пакета. Пакет не расширяется:
-заявки, пришедшие позже, остаются в буфере. Все серверы обслуживают только один пакет;
-новый пакет формируется после полной обработки текущего.
-Д2П1: сервер для заявки — первый свободный по порядку номеров 1..N.
+Д2Б5: пакет — все заявки одного источника
+с наивысшим приоритетом среди ожидающих,
+которые находятся в буфере в момент формирования пакета.
+
+Пакет не расширяется:
+заявки, пришедшие позже, остаются в буфере.
+
+Все серверы обслуживают только один пакет.
+Новый пакет формируется после полной обработки текущего.
+
+Д2П1: сервер для заявки — первый свободный
+по порядку номеров 1..N.
+
+ПЗ2: время обслуживания имеет равномерный закон U(a, b).
 end note
 
 [-> Batch: dispatchAvailable(t)\n(триггер: onRequestBuffered или onServerReleased)
 
 alt Активного пакета нет, есть свободный сервер и буфер не пуст
-  Batch -> ServerDispatch: hasFreeServer()
-  ServerDispatch --> Batch: true
-  Batch -> Buffer: waitingSourceIds()
-  Buffer --> Batch: множество sourceId ожидающих заявок
-  Batch -> Batch: sourceId = источник с наивысшим приоритетом [Д2Б5]
-  Batch -> Buffer: takeAllCurrentlyWaiting(sourceId)
-  Buffer --> Batch: заявки источника (ячейки освобождены), по порядку прихода
-  Batch -> Batch: createBatch(sourceId, t) — состав пакета зафиксирован
+
+    Batch -> ServerDispatch: hasFreeServer()
+    ServerDispatch --> Batch: true
+
+    Batch -> Buffer: waitingSourceIds()
+    Buffer --> Batch: множество sourceId ожидающих заявок
+
+    Batch -> Batch: sourceId = источник\nс наивысшим приоритетом [Д2Б5]
+
+    note right of Batch
+    Выбирается источник с наивысшим
+    приоритетом среди ожидающих.
+    В реализации меньшему числовому
+    значению priority соответствует
+    более высокий приоритет.
+    end note
+
+    Batch -> Buffer: takeAllCurrentlyWaiting(sourceId)
+    Buffer --> Batch: заявки источника\nпо порядку прихода (ячейки освобождены)
+
+    Batch -> Batch: createBatch(sourceId, t)\nсостав пакета зафиксирован
+
 else Активный пакет есть
-  Batch -> Batch: состав текущего пакета не изменяется
-  note right of Batch
+
+    Batch -> Batch: использовать текущий пакет
+
+    note right of Batch
+    Состав текущего пакета не изменяется.
     Новые заявки в пакет не добавляются.
+
     Если у пакета есть pending-заявки,
     они могут быть отправлены дальше
     на свободные серверы.
-  end note
-else Активного пакета нет, буфер пуст или нет свободных серверов
-  Batch -> Batch: ждать следующее событие (поступление / освобождение сервера)
+    end note
+
+else Активного пакета нет,\nбуфер пуст или нет свободных серверов
+
+    Batch -> Batch: ожидать следующее событие
+
 end
 
-loop Пока в пакете есть ещё не отправленные на обслуживание заявки и есть свободный сервер
-  Batch -> Batch: request = activeBatch.poll()
-  Batch -> ServerDispatch: dispatch(request, t)
-  ServerDispatch -> ServerDispatch: server = findFirstFreeServer() [Д2П1]
-  ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2: U(a, b)]
-  ServerDispatch -> Worker: startService(request, t, duration)
-  Worker --> ServerDispatch: сервер занят до t + duration
-  ServerDispatch -> Stats: registerStarted(request, server)
-  ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
-  Calendar --> ServerDispatch: eventId
-  ServerDispatch --> Batch: true
+loop Пока в пакете есть pending-заявки и свободный сервер
+
+    Batch -> Batch: request = activeBatch.poll()
+
+    Batch -> ServerDispatch: dispatch(request, t)
+
+    ServerDispatch -> ServerDispatch: server = findFirstFreeServer() [Д2П1]
+
+    ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2: U(a, b)]
+
+    ServerDispatch -> Worker: startService(request, t, duration)
+
+    Worker --> ServerDispatch: сервер занят до t + duration
+
+    ServerDispatch -> Stats: registerStarted(request, server)
+
+    ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
+
+    Calendar --> ServerDispatch: eventId
+
+    ServerDispatch --> Batch: true
+
 end
 
 opt В пакете больше нет pending-заявок, но running ещё не пуст
-  Batch -> Batch: новый пакет не формируется
-  note right of Batch
-    Если один из серверов освободится раньше остальных,
-    он будет ожидать завершения текущего пакета.
-    Заявки следующего пакета пока не назначаются.
-  end note
+
+    Batch -> Batch: новый пакет не формируется
+
+    note right of Batch
+    Если один из серверов освободится
+    раньше остальных, он будет ожидать
+    завершения текущего пакета.
+
+    Заявки следующего пакета
+    пока не назначаются.
+    end note
+
 end
+
 @enduml
