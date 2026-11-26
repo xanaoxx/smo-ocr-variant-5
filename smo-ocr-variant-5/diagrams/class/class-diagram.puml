@@ -150,4 +150,139 @@ package "Диспетчеризация" {
     + onServerReleased(request: Request, time: double): void
     + dispatchAvailable(time: double): void
     + getActiveBatch(): Batch
-    - chooseSourceId(candidates: Set<Integer>):
+    - chooseSourceId(candidates: Set<Integer>): int
+    - createBatch(sourceId: int, time: double): Batch
+  }
+
+  class ServerDispatcher {
+    - servers: List<OCRServer>
+    - serviceTimeLaw: ServiceTimeLaw
+    - calendar: EventCalendar
+    - statistics: Statistics
+    + hasFreeServer(): boolean
+    + findFirstFreeServer(): OCRServer
+    + dispatch(request: Request, time: double): boolean
+  }
+
+  class OCRServer {
+    - number: int
+    - currentRequest: Request
+    - busyTime: double
+    + getNumber(): int
+    + isFree(): boolean
+    + startService(request: Request, time: double, duration: double): void
+    + finishService(time: double): Request
+    + getBusyTime(): double
+  }
+}
+
+package "События и наблюдение" {
+  class Event {
+    - time: double
+    - type: EventType
+    - source: Source
+    - server: OCRServer
+    + getTime(): double
+    + getType(): EventType
+    + getSource(): Source
+    + getServer(): OCRServer
+  }
+
+  enum EventType {
+    REQUEST_GENERATED
+    SERVICE_COMPLETED
+  }
+
+  class EventCalendar {
+    - events: PriorityQueue<Event>
+    - currentTime: double
+    + schedule(event: Event): void
+    + next(): Event
+    + isEmpty(): boolean
+    + getCurrentTime(): double
+  }
+
+  class Statistics {
+    - generatedCount: int
+    - acceptedCount: int
+    - evictedCount: int
+    - completedCount: int
+    - totalWaitingTime: double
+    - totalServiceTime: double
+    + registerGenerated(request: Request): void
+    + registerAccepted(request: Request): void
+    + registerEvicted(request: Request, time: double): void
+    + registerStarted(request: Request, server: OCRServer): void
+    + registerCompleted(request: Request, time: double): void
+    + buildSummary(endTime: double): SummaryTable
+  }
+
+  class StepView {
+    + show(state: SystemState): void
+    + showSummary(summary: SummaryTable): void
+  }
+
+  class SimulationController {
+    - calendar: EventCalendar
+    - sources: List<Source>
+    - buffer: RingBuffer
+    - placementDispatcher: PlacementDispatcher
+    - batchScheduler: BatchScheduler
+    - serverDispatcher: ServerDispatcher
+    - statistics: Statistics
+    - view: StepView
+    + initialize(): void
+    + step(): SystemState
+    + runAuto(endTime: double): SummaryTable
+    - handleEvent(event: Event): void
+    - buildState(event: Event): SystemState
+  }
+}
+
+ArrivalLaw <|.. ExponentialInterarrivalLaw
+ServiceTimeLaw <|.. UniformServiceTimeLaw
+
+Source --> "1" ArrivalLaw : ИЗ1
+Source --> "1" EventCalendar : планирует поступления
+Source ..> Request : создаёт
+
+PlacementDispatcher --> "1" RingBuffer : Д1ОЗ1 / Д1ОО1
+PlacementDispatcher --> "1" BatchScheduler : onRequestBuffered
+PlacementDispatcher --> "1" Statistics : учёт приёма и вытеснения
+PlacementDispatcher ..> PutResult : получает
+
+RingBuffer "1" o-- "0..*" Request : ячейки
+RingBuffer ..> PutResult : возвращает
+
+BatchScheduler --> "1" RingBuffer : выборка заявок источника
+BatchScheduler --> "1" ServerDispatcher : dispatch
+BatchScheduler --> "1" Statistics
+BatchScheduler "1" o-- "0..1" Batch : активный пакет (Д2Б5)
+Batch "1" o-- "1..*" Request : состав зафиксирован
+
+ServerDispatcher "1" o-- "1..*" OCRServer : перебор по номерам (Д2П1)
+ServerDispatcher --> "1" ServiceTimeLaw : ПЗ2
+ServerDispatcher --> "1" EventCalendar : SERVICE_COMPLETED
+ServerDispatcher --> "1" Statistics : registerStarted
+OCRServer --> "0..1" Request : обслуживает
+
+Request --> RequestStatus
+EventCalendar "1" o-- "0..*" Event
+Event --> EventType
+Event --> "0..1" Source
+Event --> "0..1" OCRServer
+
+SimulationController *-- EventCalendar
+SimulationController *-- RingBuffer
+SimulationController *-- PlacementDispatcher
+SimulationController *-- BatchScheduler
+SimulationController *-- ServerDispatcher
+SimulationController *-- Statistics
+SimulationController *-- StepView
+SimulationController o-- "1..*" Source
+SimulationController ..> SystemState : ОД2
+SimulationController ..> SummaryTable : ОР1
+Statistics ..> SummaryTable : создаёт
+StepView ..> SystemState : показывает
+SystemState --> "0..1" Batch
+@enduml
