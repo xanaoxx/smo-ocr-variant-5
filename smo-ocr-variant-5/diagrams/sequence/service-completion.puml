@@ -37,16 +37,32 @@ note right of Stats
 end note
 Controller -> Batch: onServerReleased(request, tEnd)
 Batch -> Batch: activeBatch.onRequestCompleted()
-alt Все заявки активного пакета обслужены
+
+alt В пакете остались ожидающие заявки (pending не пуст)
+  Batch -> Batch: dispatchAvailable(tEnd)
+  note right of Batch
+    Отправить следующие заявки
+    текущего пакета на свободные серверы.
+  end note
+
+else Ожидающих заявок нет, но есть выполняющиеся (running не пуст)
+  Batch -> Batch: ожидать завершения остальных заявок
+  note right of Batch
+    Все заявки пакета уже назначены.
+    Новый пакет пока не формируется.
+  end note
+
+else Все заявки пакета обслужены
   Batch -> Batch: закрыть пакет (activeBatch = null)
-  opt hasFreeServer() и буфер не пуст
-    Batch -> Batch: dispatchAvailable(tEnd) — сформировать новый пакет\n(см. batch-processing.puml)
-  end
-else В пакете остались необслуженные заявки
-  opt hasFreeServer()
-    Batch -> Batch: dispatchAvailable(tEnd) — отправить следующую заявку\nпакета на первый свободный сервер [Д2П1]
+  opt Буфер не пуст и есть свободный сервер
+    Batch -> Batch: dispatchAvailable(tEnd)
+    note right of Batch
+      Сформировать следующий пакет
+      из заявок буфера.
+    end note
   end
 end
+
 Batch --> Controller: готово
 Controller -> View: show(SystemState) [ОД2]
 @enduml
