@@ -1,4 +1,3 @@
-
 @startuml
 skinparam backgroundColor white
 skinparam shadowing false
@@ -24,6 +23,7 @@ participant "Отображение\n(ОД2)" as View
 note over Controller, View
 Триггер: событие SERVICE_COMPLETED,
 наступившее в календаре событий.
+
 После завершения обслуживания сервер освобождается,
 после чего запускается диспетчеризация.
 end note
@@ -32,10 +32,12 @@ Controller -> Calendar: next()
 Calendar --> Controller: SERVICE_COMPLETED(server, tEnd)
 
 Controller -> Worker: finishService(tEnd)
+
 Worker -> Worker: busyTime += tEnd - serviceStartTime
 Worker -> Worker: request.finishService(tEnd)
 Worker -> Worker: completedCount++
 Worker -> Worker: очистить currentRequest,\nserviceStartTime, busyUntil
+
 Worker --> Controller: request
 
 Controller -> Stats: registerCompleted(request, tEnd)
@@ -47,19 +49,25 @@ note right of Stats
 end note
 
 Controller -> Batch: onServerReleased(request, tEnd)
+
 Batch -> Batch: activeBatch.onRequestCompleted(request)
 Batch -> Batch: isFullyProcessed()
 
 alt Все заявки пакета обслужены
-  Batch -> Batch: lastBatch = activeBatch
-  Batch -> Batch: activeBatch = null
+
+    Batch -> Batch: lastBatch = activeBatch
+    Batch -> Batch: activeBatch = null
+
 else Пакет ещё не завершён
-  note right of Batch
+
+    note right of Batch
     Пакет остаётся активным.
     Его зафиксированный состав не изменяется.
+
     Ожидающие заявки остаются в pending,
     выполняющиеся — в running.
-  end note
+    end note
+
 end
 
 Batch -> Batch: dispatchAvailable(tEnd)
@@ -69,12 +77,15 @@ ref over Batch, Buffer, ServerDispatch: диспетчеризация теку�
 Batch --> Controller: готово
 
 opt Режим пошаговый
-  Controller -> View: show(SystemState) [ОД2]
+
+    Controller -> View: show(SystemState) [ОД2]
+
 end
 
 note right of View
 В автоматическом режиме промежуточное
 отображение состояния не вызывается.
+
 Итоговая сводка выводится после
 завершения цикла моделирования.
 end note
