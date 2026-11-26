@@ -1,4 +1,3 @@
-
 @startuml
 skinparam backgroundColor white
 skinparam shadowing false
@@ -80,16 +79,19 @@ loop Пока есть неотправленные заявки и свобод
   ServerDispatch -> ServerDispatch: findFirstFreeServer() [Д2П1]
   ServerDispatch -> ServerDispatch: duration = serviceTimeLaw.nextDuration() [ПЗ2: U(a, b)]
   ServerDispatch -> Worker: startService(request, t, duration)
-Worker --> ServerDispatch: сервер занят до t + duration
-ServerDispatch -> Stats: registerStarted(request, server)
-ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
-Calendar --> ServerDispatch: eventId
+  Worker --> ServerDispatch: сервер занят до t + duration
+  ServerDispatch -> Stats: registerStarted(request, server)
+  ServerDispatch -> Calendar: schedule(SERVICE_COMPLETED, t + duration)
+  Calendar --> ServerDispatch: eventId
   ServerDispatch --> Batch: true
 end
 
-opt Режим пошаговый
-  Controller -> View: show(SystemState) [ОД2]
-end
+Controller -> View: show(SystemState) [ОД2]
+note right of View
+  В пошаговом режиме состояние выводится пользователю.
+  В автоматическом режиме промежуточный вывод
+  может быть подавлен интерфейсом.
+end note
 
 ... проходит время OCR-обслуживания ...
 
@@ -115,7 +117,12 @@ alt Все заявки пакета обслужены
     Новый пакет не формируется.
   end note
 end
-opt Режим пошаговый
+
 Controller -> View: show(SystemState) [ОД2]
-end
+note right of View
+  В пошаговом режиме состояние выводится пользователю.
+  В автоматическом режиме промежуточный вывод
+  может быть подавлен интерфейсом.
+end note
+
 @enduml
