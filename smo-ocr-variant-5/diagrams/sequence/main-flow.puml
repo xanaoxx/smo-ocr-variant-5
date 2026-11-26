@@ -39,49 +39,47 @@ end note
 
 loop Для каждого источника
   Controller -> Source: scheduleNext(0)
-  Source -> Calendar: createEvent(nextTime, REQUEST_GENERATED)
+  Source -> Source: arrivalLaw.nextInterval()
   Source -> Calendar: schedule(event)
 end
 
 == Цикл обработки событий ==
 
-note over Controller, View
-В пошаговом режиме один проход соответствует
-одному вызову step().
-В автоматическом режиме runAuto() самостоятельно
-обрабатывает события до опустошения календаря.
-end note
-
 loop Пока календарь не пуст
 
   Controller -> Calendar: next()
-  Calendar --> Controller: event(time, type, source / server, requestId)
+  Calendar --> Controller: event(time, type, source / server)
 
   alt event.type = REQUEST_GENERATED
 
-    Controller -> Source: generateRequest(event.time)
-    Source --> Controller: request
+    alt Общий лимит генерации ещё не достигнут
 
-    alt Общий лимит ещё не достигнут
+      Controller -> Source: generateRequest(event.time)
+      Source --> Controller: request
 
-      Controller -> Source: scheduleNext(event.time)
-      Source -> Calendar: createEvent(nextTime, REQUEST_GENERATED)
-      Source -> Calendar: schedule(event)
+      opt После создания заявки лимит ещё не достигнут
+        Controller -> Source: scheduleNext(event.time)
+        Source -> Source: arrivalLaw.nextInterval()
+        Source -> Calendar: schedule(event)
+      end
 
-    else Достигнут общий лимит
+      Controller -> Placement: onRequestGenerated(request, event.time)
 
-      Controller -> Calendar: cancelFutureArrivals()
-      Calendar --> Controller: будущие REQUEST_GENERATED удалены,\nSERVICE_COMPLETED сохранены
+      ref over Placement, Buffer, Stats: Постановка заявки в кольцевой буфер\nсм. overflow.puml
+
+      Placement -> Batch: onRequestBuffered(event.time)
+
+      ref over Batch, Buffer, ServerDispatch, Worker, Calendar, Stats: Диспетчеризация пакета\nсм. batch-processing.puml
+
+    else Общий лимит достигнут
+
+      note over Controller, Calendar
+        Уже запланированное событие REQUEST_GENERATED
+        пропускается. Новая заявка не создаётся.
+        События SERVICE_COMPLETED продолжают обрабатываться.
+      end note
 
     end
-
-    Controller -> Placement: onRequestGenerated(request, event.time)
-
-    ref over Placement, Buffer, Stats: Постановка заявки в кольцевой буфер\nсм. overflow.puml
-
-    Placement -> Batch: onRequestBuffered(event.time)
-
-    ref over Batch, Buffer, ServerDispatch, Worker, Calendar, Stats: Диспетчеризация пакета\nсм. batch-processing.puml
 
   else event.type = SERVICE_COMPLETED
 
