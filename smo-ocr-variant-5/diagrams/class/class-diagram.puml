@@ -1,3 +1,4 @@
+
 @startuml
 title Вариант 5 — диаграмма классов центра OCR-обработки
 left to right direction
@@ -11,23 +12,30 @@ skinparam ClassBorderColor #236B8E
 skinparam ClassBackgroundColor #EAF4FA
 
 package "Модель" {
+
   class Request {
-    - id: long
+    - id: String
     - sourceId: int
     - documentUri: String
     - ocrParameters: String
     - arrivalTime: double
-    - serviceStartTime: double
-    - serviceEndTime: double
     - status: RequestStatus
-    + getId(): long
+    - serviceStartTime: Optional<double>
+    - serviceEndTime: Optional<double>
+    - bufferedTime: Optional<double>
+    - slotIndex: Optional<int>
+    - insertionOrder: int
+    - rejectedTime: Optional<double>
+    - serverNumber: Optional<int>
+    - batchNumber: Optional<int>
+    + getId(): String
     + getSourceId(): int
     + getArrivalTime(): double
     + startService(time: double): void
     + finishService(time: double): void
     + markEvicted(): void
-    + getWaitingTime(): double
-    + getServiceTime(): double
+    + getWaitingTime(): Optional<double>
+    + getServiceTime(): Optional<double>
   }
 
   enum RequestStatus {
@@ -39,49 +47,62 @@ package "Модель" {
 
   class Batch {
     - sourceId: int
-    - pending: Queue<Request>
+    - pending: Deque<Request>
     - totalCount: int
     - completedCount: int
     - createdAt: double
-    + poll(): Request
+    - number: int
+    - running: Set<String>
+    - completedIds: List<String>
+    - fixedIds: Tuple<String>
+    + poll(): Optional<Request>
+    + returnToPending(request: Request): void
     + hasPending(): boolean
-    + onRequestCompleted(): void
+    + pendingCount(): int
+    + onRequestCompleted(request: Request): void
     + isFullyProcessed(): boolean
     + getSourceId(): int
   }
 
   class RingBuffer {
-    - cells: Request[]
+    - cells: Optional<Request>[]
     - pointer: int
     - capacity: int
+    - insertionSequence: Counter
     + put(request: Request): PutResult
-    + waitingSourceIds(): Set<Integer>
+    + waitingSourceIds(): Set<int>
     + takeAllCurrentlyWaiting(sourceId: int): List<Request>
     + isEmpty(): boolean
     + isFull(): boolean
-    + snapshot(): Request[]
+    + snapshot(): Tuple<Request>
     + getPointer(): int
-    - nextIndex(index: int): int
+    + nextIndex(index: int): int
   }
 
   class PutResult {
     - stored: boolean
     - cellIndex: int
-    - evictedRequest: Request
+    - evictedRequest: Optional<Request>
     + isStored(): boolean
     + isEvicted(): boolean
     + getCellIndex(): int
-    + getEvictedRequest(): Request
+    + getEvictedRequest(): Optional<Request>
   }
 
   class SystemState {
     - time: double
-    - lastEvent: Event
-    - bufferSnapshot: Request[]
+    - lastEvent: String
+    - actions: List<String>
+    - bufferSnapshot: List<Dict>
     - bufferPointer: int
-    - activeBatch: Batch
-    - serverStates: List<String>
+    - activeBatch: Optional<Dict>
+    - serverStates: List<Dict>
     - counters: SummaryTable
+    - sources: List<Dict>
+    - generatedCount: int
+    - acceptedCount: int
+    - evictedCount: int
+    - completedCount: int
     + getTime(): double
   }
 
@@ -93,65 +114,87 @@ package "Модель" {
     - evictionRatio: double
     - averageWaitingTime: double
     - averageServiceTime: double
-    - serverUtilization: Map<Integer, Double>
+    - serverUtilization: Dict<int, double>
+    - sourceRows: List<Dict>
+    - serverRows: List<Dict>
+    - duration: double
     + toTable(): String
   }
 }
 
 package "Источники и случайные законы" {
+
   class Source {
     - id: int
     - priority: int
-    - nextRequestId: long
+    - nextRequestId: int
     - arrivalLaw: ArrivalLaw
     - calendar: EventCalendar
+    - generatedCount: int
     + generateRequest(time: double): Request
     + scheduleNext(time: double): void
     + getId(): int
     + getPriority(): int
   }
 
-  interface ArrivalLaw {
+  abstract class ArrivalLaw {
     + nextInterval(): double
   }
 
   class ExponentialInterarrivalLaw {
     - lambda: double
+    - random: Random
     + nextInterval(): double
   }
 
-  interface ServiceTimeLaw {
+  abstract class ServiceTimeLaw {
     + nextDuration(): double
   }
 
   class UniformServiceTimeLaw {
     - minDuration: double
     - maxDuration: double
+    - random: Random
     + nextDuration(): double
+  }
+
+  class Config {
+    + arrivalRates: Tuple<double>
+    + workers: int
+    + capacity: int
+    + serviceA: double
+    + serviceB: double
+    + requestLimit: int
+    + seed: int
+    + __post_init__(): void
   }
 }
 
 package "Диспетчеризация" {
+
   class PlacementDispatcher {
     - buffer: RingBuffer
     - batchScheduler: BatchScheduler
     - statistics: Statistics
-    + onRequestGenerated(request: Request, time: double): void
-    - place(request: Request, time: double): PutResult
+    + onRequestGenerated(request: Request, time: double): PutResult
+    + place(request: Request, time: double): PutResult
   }
 
   class BatchScheduler {
     - buffer: RingBuffer
     - serverDispatcher: ServerDispatcher
     - statistics: Statistics
-    - sourcePriorities: Map<Integer, Integer>
-    - activeBatch: Batch
+    - sourcePriorities: Dict<int, int>
+    - activeBatch: Optional<Batch>
+    - lastBatch: Optional<Batch>
+    - batchSequence: Counter
+    - lastActions: List<String>
     + onRequestBuffered(time: double): void
     + onServerReleased(request: Request, time: double): void
     + dispatchAvailable(time: double): void
-    + getActiveBatch(): Batch
-    - chooseSourceId(candidates: Set<Integer>): int
-    - createBatch(sourceId: int, time: double): Batch
+    + chooseSourceId(candidates: Set<int>): Optional<int>
+    + createBatch(sourceId: int, time: double): Batch
+    + getActiveBatch(): Optional<Batch>
   }
 
   class ServerDispatcher {
@@ -160,14 +203,17 @@ package "Диспетчеризация" {
     - calendar: EventCalendar
     - statistics: Statistics
     + hasFreeServer(): boolean
-    + findFirstFreeServer(): OCRServer
+    + findFirstFreeServer(): Optional<OCRServer>
     + dispatch(request: Request, time: double): boolean
   }
 
   class OCRServer {
     - number: int
-    - currentRequest: Request
+    - currentRequest: Optional<Request>
     - busyTime: double
+    - serviceStartTime: Optional<double>
+    - busyUntil: Optional<double>
+    - completedCount: int
     + getNumber(): int
     + isFree(): boolean
     + startService(request: Request, time: double, duration: double): void
@@ -177,15 +223,19 @@ package "Диспетчеризация" {
 }
 
 package "События и наблюдение" {
+
   class Event {
     - time: double
+    - priority: int
+    - sequence: int
     - type: EventType
-    - source: Source
-    - server: OCRServer
+    - source: Optional<Source>
+    - server: Optional<OCRServer>
+    - requestId: Optional<String>
     + getTime(): double
     + getType(): EventType
-    + getSource(): Source
-    + getServer(): OCRServer
+    + getSource(): Optional<Source>
+    + getServer(): Optional<OCRServer>
   }
 
   enum EventType {
@@ -194,12 +244,18 @@ package "События и наблюдение" {
   }
 
   class EventCalendar {
-    - events: PriorityQueue<Event>
+    - events: List<Event>
     - currentTime: double
+    - sequence: Counter
     + schedule(event: Event): void
+    + createEvent(time: double, eventType: EventType): Event
     + next(): Event
     + isEmpty(): boolean
     + getCurrentTime(): double
+    + getEvents(): Tuple<Event>
+    + getNextTime(): Optional<double>
+    + cancelFutureArrivals(): void
+    + discardArrivalsAfter(endTime: double): void
   }
 
   class Statistics {
@@ -209,6 +265,11 @@ package "События и наблюдение" {
     - completedCount: int
     - totalWaitingTime: double
     - totalServiceTime: double
+    - startedCount: int
+    - serverStarts: Dict<int, int>
+    - requests: List<Request>
+    - sources: List<Source>
+    - servers: List<OCRServer>
     + registerGenerated(request: Request): void
     + registerAccepted(request: Request): void
     + registerEvicted(request: Request, time: double): void
@@ -223,24 +284,34 @@ package "События и наблюдение" {
   }
 
   class SimulationController {
+    - config: Config
+    - view: StepView
     - calendar: EventCalendar
+    - random: Random
     - sources: List<Source>
     - buffer: RingBuffer
-    - placementDispatcher: PlacementDispatcher
-    - batchScheduler: BatchScheduler
-    - serverDispatcher: ServerDispatcher
-    - statistics: Statistics
-    - view: StepView
+    - servers: List<OCRServer>
+    - statistics: Optional<Statistics>
+    - placementDispatcher: Optional<PlacementDispatcher>
+    - batchScheduler: Optional<BatchScheduler>
+    - serverDispatcher: Optional<ServerDispatcher>
+    - time: double
+    - lastEvent: String
+    - lastActions: List<String>
+    - done: boolean
+    - initialized: boolean
     + initialize(): void
     + step(): SystemState
-    + runAuto(endTime: double): SummaryTable
-    - handleEvent(event: Event): void
-    - buildState(event: Event): SystemState
+    + handleEvent(event: Event): void
+    + buildState(): SystemState
+    + runAuto(endTime: Optional<double>): SummaryTable
+    - checkInvariants(): void
+    + getSummary(): SummaryTable
   }
 }
 
-ArrivalLaw <|.. ExponentialInterarrivalLaw
-ServiceTimeLaw <|.. UniformServiceTimeLaw
+ArrivalLaw <|-- ExponentialInterarrivalLaw
+ServiceTimeLaw <|-- UniformServiceTimeLaw
 
 Source --> "1" ArrivalLaw : ИЗ1
 Source --> "1" EventCalendar : планирует поступления
@@ -249,40 +320,53 @@ Source ..> Request : создаёт
 PlacementDispatcher --> "1" RingBuffer : Д1ОЗ1 / Д1ОО1
 PlacementDispatcher --> "1" BatchScheduler : onRequestBuffered
 PlacementDispatcher --> "1" Statistics : учёт приёма и вытеснения
-PlacementDispatcher ..> PutResult : получает
+PlacementDispatcher ..> PutResult : возвращает
 
 RingBuffer "1" o-- "0..*" Request : ячейки
 RingBuffer ..> PutResult : возвращает
+PutResult --> "0..1" Request : evictedRequest
 
 BatchScheduler --> "1" RingBuffer : выборка заявок источника
 BatchScheduler --> "1" ServerDispatcher : dispatch
 BatchScheduler --> "1" Statistics
-BatchScheduler "1" o-- "0..1" Batch : активный пакет (Д2Б5)
-Batch "1" o-- "1..*" Request : состав зафиксирован
+BatchScheduler --> "0..1" Batch : activeBatch
+BatchScheduler --> "0..1" Batch : lastBatch
+Batch "1" o-- "0..*" Request : pending-заявки
 
-ServerDispatcher "1" o-- "1..*" OCRServer : перебор по номерам (Д2П1)
+ServerDispatcher --> "1..*" OCRServer : перебор по номерам (Д2П1)
 ServerDispatcher --> "1" ServiceTimeLaw : ПЗ2
 ServerDispatcher --> "1" EventCalendar : SERVICE_COMPLETED
 ServerDispatcher --> "1" Statistics : registerStarted
+
 OCRServer --> "0..1" Request : обслуживает
 
 Request --> RequestStatus
-EventCalendar "1" o-- "0..*" Event
+
+EventCalendar "1" *-- "0..*" Event : очередь событий
 Event --> EventType
 Event --> "0..1" Source
 Event --> "0..1" OCRServer
 
+Statistics --> "1..*" Source
+Statistics --> "1..*" OCRServer
+Statistics ..> SummaryTable : создаёт
+
+SimulationController --> "1" Config
+SimulationController --> "1" StepView
 SimulationController *-- EventCalendar
 SimulationController *-- RingBuffer
+SimulationController *-- "1..*" Source
+SimulationController *-- "1..*" OCRServer
 SimulationController *-- PlacementDispatcher
 SimulationController *-- BatchScheduler
 SimulationController *-- ServerDispatcher
 SimulationController *-- Statistics
-SimulationController *-- StepView
-SimulationController o-- "1..*" Source
-SimulationController ..> SystemState : ОД2
-SimulationController ..> SummaryTable : ОР1
-Statistics ..> SummaryTable : создаёт
+
+SimulationController ..> SystemState : создаёт (ОД2)
+SimulationController ..> SummaryTable : возвращает (ОР1)
+
+SystemState --> "1" SummaryTable : counters
 StepView ..> SystemState : показывает
-SystemState --> "0..1" Batch
+StepView ..> SummaryTable : показывает
+
 @enduml
