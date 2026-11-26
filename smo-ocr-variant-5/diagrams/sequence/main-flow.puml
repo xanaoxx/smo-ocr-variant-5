@@ -72,15 +72,22 @@ else event.type = SERVICE_COMPLETED
   Controller -> Batch: onServerReleased(request, t)
   ref over Batch, Worker, Stats: завершение обслуживания\nсм. service-completion.puml
 end
-  Controller -> View: show(SystemState) [ОД2]
-  note right
-  Состояние: источники, ячейки буфера,
-  указатель, активный пакет, серверы, счётчики.
-  end note
-end
+    alt Режим пошаговый
+    Controller -> View: show(SystemState) [ОД2]
+  else Режим автоматический
+    note right of View
+      Промежуточное состояние
+      не выводится.
+    end note
+  end
+    note right of View
+    Состояние: источники, ячейки буфера,
+    указатель, активный пакет, серверы, счётчики.
+    end note
+  end
 
 == Завершение моделирования ==
 Controller -> Stats: buildSummary(endTime) [ОР1]
-Stats --> Controller: SummaryTable
-Controller -> View: showSummary(SummaryTable)
+Stats --> Controller: две итоговые таблицы
+Controller -> View: showSummary(две итоговые таблицы)
 @enduml
