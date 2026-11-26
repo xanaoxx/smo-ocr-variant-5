@@ -1,4 +1,3 @@
-
 @startuml
 skinparam backgroundColor white
 skinparam shadowing false
@@ -26,17 +25,21 @@ participant "Отображение\n(ОД2)" as View
 note over Controller, View
 Расшифровка варианта: ИБ ИЗ1 ПЗ2 Д1ОЗ1 Д1ОО1 Д2П1 Д2Б5 ОР1 ОД2
 ИБ — источники заявок; ИЗ1 — экспоненциальные интервалы между заявками;
-ПЗ2 — время OCR-обслуживания U(a, b); Д1ОЗ1 — запись в кольцевой буфер от указателя;
+ПЗ2 — время OCR-обслуживания U(a, b);
+Д1ОЗ1 — запись в кольцевой буфер от указателя;
 Д1ОО1 — при полном буфере вытесняется заявка под указателем;
-Д2П1 — первый свободный сервер по порядку номеров; Д2Б5 — пакет заявок одного источника;
-ОР1 — сводная таблица статистики; ОД2 — пошаговое отображение состояния.
+Д2П1 — первый свободный сервер по порядку номеров;
+Д2Б5 — пакет заявок одного источника;
+ОР1 — сводная таблица статистики;
+ОД2 — пошаговое отображение состояния.
 end note
 
 == Инициализация ==
 
 loop Для каждого источника
-  Source -> Calendar: schedule(REQUEST_GENERATED, 0 + ИЗ1.nextInterval())
-  Calendar --> Source: eventId
+  Controller -> Source: scheduleNext(0)
+  Source -> Calendar: createEvent(nextTime, REQUEST_GENERATED)
+  Source -> Calendar: schedule(event)
 end
 
 == Цикл обработки событий ==
@@ -44,62 +47,72 @@ end
 loop Пока календарь не пуст
 
   Controller -> Calendar: next()
-  Calendar --> Controller: event (тип, время t, источник / сервер / заявка)
+  Calendar --> Controller: event(time, type, source / server, requestId)
 
   alt event.type = REQUEST_GENERATED
 
-    Controller -> Source: generateRequest(t)
+    Controller -> Source: generateRequest(event.time)
     Source --> Controller: request
 
     alt Общий лимит ещё не достигнут
-      Source -> Calendar: schedule(REQUEST_GENERATED, t + ИЗ1.nextInterval())
-      Calendar --> Source: eventId
-    else Достигнут общий лимит
+      Source -> Source: scheduleNext(event.time)
+      Source -> Calendar: createEvent(nextTime, REQUEST_GENERATED)
+      Source -> Calendar: schedule(event)
+    else Общий лимит достигнут
       Controller -> Calendar: cancelFutureArrivals()
-      Calendar --> Controller: будущие поступления отменены
+      Calendar --> Controller: будущие поступления отменены,\nзавершения обслуживания сохранены
     end
 
-    Controller -> Placement: onRequestGenerated(request, t)
+    Controller -> Placement: onRequestGenerated(request, event.time)
+
     ref over Placement, Buffer, Stats: Постановка заявки в кольцевой буфер\nсм. overflow.puml
-    Placement -> Batch: onRequestBuffered(t)
-    ref over Batch, ServerDispatch, Worker: Диспетчеризация пакета\nсм. batch-processing.puml
+
+    Placement -> Batch: onRequestBuffered(event.time)
+
+    ref over Batch, Buffer, ServerDispatch, Worker, Calendar, Stats: Диспетчеризация пакета\nсм. batch-processing.puml
 
   else event.type = SERVICE_COMPLETED
 
-    Controller -> Worker: finishService(t)
+    Controller -> Worker: finishService(event.time)\n[сервер из события]
     Worker --> Controller: request
-    Controller -> Stats: registerCompleted(request, t)
-    Controller -> Batch: onServerReleased(request, t)
-    ref over Batch, Worker, Stats: Завершение обслуживания\nсм. service-completion.puml
+
+    Controller -> Stats: registerCompleted(request, event.time)
+
+    Controller -> Batch: onServerReleased(request, event.time)
+
+    ref over Batch, Buffer, ServerDispatch, Worker, Calendar, Stats: Завершение обслуживания\nсм. service-completion.puml
 
   end
 
-  alt Режим пошаговый
+  Controller -> Controller: buildState()
 
-    Controller -> View: show(SystemState) [ОД2]
+  note right of Controller
+    Формируется SystemState:
+    источники, ячейки буфера,
+    указатель, активный пакет,
+    серверы и счётчики.
+  end note
 
-    note right of View
-      Состояние:
-      источники, ячейки буфера,
-      указатель, активный пакет,
-      серверы, счётчики.
-    end note
+  Controller -> View: show(SystemState) [ОД2]
 
-  else Режим автоматический
-
-    note right of View
-      Промежуточное состояние
-      не выводится.
-    end note
-
-  end
+  note right of View
+    В пошаговом режиме состояние отображается.
+    В автоматическом режиме runAuto вызывает
+    тот же step(), но интерфейс пропускает
+    промежуточное отображение.
+  end note
 
 end
 
 == Завершение моделирования ==
 
-Controller -> Stats: buildSummary(endTime) [ОР1]
-Stats --> Controller: две итоговые таблицы
-Controller -> View: showSummary(две итоговые таблицы)
+opt Режим автоматический (runAuto)
+
+  Controller -> Stats: buildSummary(time)
+  Stats --> Controller: SummaryTable\n(таблица по источникам и серверам)
+
+  Controller -> View: showSummary(SummaryTable)
+
+end
 
 @enduml
